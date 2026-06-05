@@ -276,7 +276,8 @@ async function extractWordStructure(file: File): Promise<FileStructure> {
 async function extractPdfStructure(file: File): Promise<FileStructure> {
   const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist');
   
-  GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${require('pdfjs-dist/package.json').version}/pdf.worker.min.mjs`;
+  // 使用本地 worker（Node.js 需要用绝对路径）
+  GlobalWorkerOptions.workerSrc = require('path').resolve(process.cwd(), 'public', 'pdf.worker.min.mjs');
   
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await getDocument({ data: arrayBuffer }).promise;

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { RuleConfig, ParseRule, AISuggestion } from '@/types';
+import { RuleConfig, ParseRule } from '@/types';
 
 export default function ImportPage() {
   const router = useRouter();
@@ -12,8 +12,6 @@ export default function ImportPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [showRuleEditor, setShowRuleEditor] = useState(false);
-  const [aiSuggestion, setAiSuggestion] = useState<AISuggestion | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // 加载规则列表
@@ -71,7 +69,6 @@ export default function ImportPage() {
     
     setError(null);
     setFile(file);
-    setAiSuggestion(null);
   };
 
   // 字段标签映射
@@ -108,15 +105,17 @@ export default function ImportPage() {
     }
   };
 
-  // 使用 AI 分析文件生成规则
+  // AI 智能生成规则 → 预览 → 保存并解析
   const handleAIGenerate = async () => {
     if (!file) return;
     
     setIsUploading(true);
-    setUploadProgress(0);
+    setUploadProgress(5);
     setError(null);
     
     try {
+      // 阶段1: AI 分析文件结构 + 生成规则
+      setUploadProgress(10);
       const formData = new FormData();
       formData.append('file', file);
       formData.append('useAI', 'true');
@@ -126,19 +125,78 @@ export default function ImportPage() {
         body: formData,
       });
       
+      setUploadProgress(40);
       const data = await res.json();
       
-      if (data.success && data.type === 'ai_suggestion') {
-        setAiSuggestion(data.data);
-        setShowRuleEditor(true);
-      } else {
+      if (!data.success || data.type !== 'ai_suggestion') {
         setError(data.error || 'AI 分析失败');
+        return;
       }
+      
+      const aiRule = data.data.rule;
+      setUploadProgress(50);
+      
+      // 阶段2: 使用 AI 生成的规则进行预览解析（前20条）
+      const previewFormData = new FormData();
+      previewFormData.append('file', file);
+      previewFormData.append('rule', JSON.stringify({
+        fileType: aiRule.fileType || 'excel',
+        dataArea: aiRule.dataArea || {},
+        fieldMappings: aiRule.fieldMappings || [],
+        strategies: aiRule.strategies || [],
+      }));
+      
+      setUploadProgress(60);
+      const previewRes = await fetch('/api/parse', {
+        method: 'POST',
+        body: previewFormData,
+      });
+      
+      setUploadProgress(85);
+      const previewData = await previewRes.json();
+      
+      // 保存规则和预览数据到 sessionStorage
+      sessionStorage.setItem('previewRule', JSON.stringify({
+        name: file.name,
+        confidence: data.data.confidence || 0,
+        rule: {
+          fileType: aiRule.fileType || 'excel',
+          dataArea: aiRule.dataArea || {},
+          fieldMappings: aiRule.fieldMappings || [],
+          strategies: aiRule.strategies || [],
+        },
+      }));
+      
+      if (previewData.success && previewData.data.length > 0) {
+        sessionStorage.setItem('previewData', JSON.stringify(previewData.data.slice(0, 20)));
+      }
+      
+      // 保存文件引用（通过 file 名匹配，后续解析需要重新传递规则）
+      sessionStorage.setItem('previewFile', JSON.stringify({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      }));
+      sessionStorage.setItem('previewFileRule', JSON.stringify({
+        fileType: aiRule.fileType || 'excel',
+        dataArea: aiRule.dataArea || {},
+        fieldMappings: aiRule.fieldMappings || [],
+        strategies: aiRule.strategies || [],
+      }));
+      
+      setUploadProgress(100);
+      
+      // 跳转到规则预览页
+      setTimeout(() => {
+        router.push('/rule-preview');
+      }, 300);
     } catch (e: any) {
       setError(`请求失败: ${e.message}`);
     } finally {
-      setIsUploading(false);
-      setUploadProgress(100);
+      setTimeout(() => {
+        setIsUploading(false);
+        setUploadProgress(0);
+      }, 500);
     }
   };
 
@@ -185,32 +243,7 @@ export default function ImportPage() {
     }
   };
 
-  // 保存 AI 生成的规则
-  const handleSaveAIRule = async () => {
-    if (!aiSuggestion) return;
-    
-    try {
-      const res = await fetch('/api/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: `${file?.name || '新规则'} - AI生成`,
-          description: '由 AI 自动生成',
-          config: aiSuggestion.rule,
-        }),
-      });
-      
-      const data = await res.json();
-      
-      if (data.success) {
-        await loadRules();
-        setSelectedRule(data.data);
-        setShowRuleEditor(false);
-      }
-    } catch (e: any) {
-      setError('保存规则失败');
-    }
-  };
+  // 使用已有规则解析
 
   return (
     <div className="space-y-6">
@@ -279,10 +312,22 @@ export default function ImportPage() {
           
           <div className="flex items-center gap-4 mb-4">
             <button className="btn-primary" onClick={handleAIGenerate} disabled={isUploading}>
-              <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              AI 智能生成规则
+              {isUploading ? (
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  AI 分析中... {uploadProgress}%
+                </span>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  AI 智能生成规则
+                </>
+              )}
             </button>
             
             <span className="text-gray-400">或</span>
@@ -313,141 +358,13 @@ export default function ImportPage() {
               {selectedRule.description && (
                 <p className="text-xs text-gray-600 mt-1">{selectedRule.description}</p>
               )}
+              <p className="text-xs text-primary mt-2">
+                → 如需调整字段映射，请前往「规则管理」编辑
+              </p>
             </div>
           )}
           
-          {aiSuggestion && showRuleEditor && (
-            <div className="mt-4 border border-primary-lighter rounded-lg p-4">
-              <h4 className="font-medium text-gray-900 mb-3">AI 生成的规则建议</h4>
-              
-              {/* 置信度 */}
-              <div className="mb-3 flex items-center gap-2">
-                <span className="text-sm text-gray-600">置信度:</span>
-                <div className="flex-1 bg-gray-200 rounded-full h-2 max-w-xs">
-                  <div
-                    className={`h-2 rounded-full transition-all ${
-                      aiSuggestion.confidence > 0.8 ? 'bg-green-500' :
-                      aiSuggestion.confidence > 0.5 ? 'bg-yellow-500' : 'bg-red-500'
-                    }`}
-                    style={{ width: `${aiSuggestion.confidence * 100}%` }}
-                  />
-                </div>
-                <span className="text-sm font-medium">{Math.round(aiSuggestion.confidence * 100)}%</span>
-              </div>
-              
-              {/* 字段映射 */}
-              {aiSuggestion.rule.fieldMappings && aiSuggestion.rule.fieldMappings.length > 0 && (
-                <div className="mb-3">
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">字段映射:</h5>
-                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                    {aiSuggestion.rule.fieldMappings.map((m, i) => (
-                      <div key={i} className="flex items-center gap-2 text-sm">
-                        <span className="font-medium text-primary min-w-[80px]">
-                          {getFieldLabel(m.targetField)}
-                        </span>
-                        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                        </svg>
-                        <span className="text-gray-600">
-                          {m.sourceColumn !== undefined ? `第 ${m.sourceColumn + 1} 列` : m.sourceField || '-'}
-                        </span>
-                        {m.required && (
-                          <span className="text-red-500 text-xs">必填</span>
-                        )}
-                        {m.defaultValue && (
-                          <span className="text-gray-400 text-xs">默认: {m.defaultValue}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* 解析策略 */}
-              {aiSuggestion.rule.strategies && aiSuggestion.rule.strategies.length > 0 && (
-                <div className="mb-3">
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">解析策略:</h5>
-                  <div className="bg-gray-50 rounded-lg p-3 space-y-1">
-                    {aiSuggestion.rule.strategies.map((s, i) => (
-                      <div key={i} className="flex items-center gap-2 text-sm">
-                        <svg className="w-4 h-4 text-primary flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        <span className="text-gray-600">{getStrategyLabel(s)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* 数据区域配置 */}
-              {aiSuggestion.rule.dataArea && (
-                <div className="mb-3">
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">数据区域:</h5>
-                  <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 space-y-1">
-                    {aiSuggestion.rule.dataArea.headerRow !== undefined && (
-                      <div>表头行: 第 {aiSuggestion.rule.dataArea.headerRow + 1} 行</div>
-                    )}
-                    {aiSuggestion.rule.dataArea.dataStartRow !== undefined && (
-                      <div>数据起始: 第 {aiSuggestion.rule.dataArea.dataStartRow + 1} 行</div>
-                    )}
-                    {aiSuggestion.rule.dataArea.skipRows && (
-                      <div>跳过行数: {aiSuggestion.rule.dataArea.skipRows}</div>
-                    )}
-                    {aiSuggestion.rule.dataArea.matrixTranspose && (
-                      <div>矩阵转置: 行维度列 {aiSuggestion.rule.dataArea.matrixTranspose.rowDimensionCol + 1}, 列维度 {aiSuggestion.rule.dataArea.matrixTranspose.colDimensionStart + 1}-{aiSuggestion.rule.dataArea.matrixTranspose.colDimensionEnd + 1}</div>
-                    )}
-                    {aiSuggestion.rule.dataArea.cardPattern && (
-                      <div>卡片模式: 起始标志 "{aiSuggestion.rule.dataArea.cardPattern.startPattern}"</div>
-                    )}
-                    {aiSuggestion.rule.dataArea.cellSplit && (
-                      <div>单元格拆分: 列 {aiSuggestion.rule.dataArea.cellSplit.columns.map(c => c + 1).join(', ')} 分隔符 "{aiSuggestion.rule.dataArea.cellSplit.separator}"</div>
-                    )}
-                  </div>
-                </div>
-              )}
-              
-              {/* AI 说明 */}
-              {aiSuggestion.notes.length > 0 && (
-                <div className="mb-3">
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">AI 说明:</h5>
-                  <ul className="text-sm text-gray-600 space-y-1">
-                    {aiSuggestion.notes.map((note, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <svg className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                        {note}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              
-              {/* 需要确认的映射 */}
-              {aiSuggestion.uncertainMappings.length > 0 && (
-                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-3">
-                  <p className="text-sm text-orange-700 font-medium mb-1">需要确认的映射:</p>
-                  <ul className="text-xs text-orange-600 space-y-1">
-                    {aiSuggestion.uncertainMappings.map((m, i) => (
-                      <li key={i}>• {getFieldLabel(m.field)}: {m.reason}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              
-              <div className="flex gap-3">
-                <button className="btn-primary" onClick={handleSaveAIRule}>
-                  确认并保存规则
-                </button>
-                <button className="btn-secondary" onClick={() => setShowRuleEditor(false)}>
-                  取消
-                </button>
-              </div>
-            </div>
-          )}
-          
-          {file && (selectedRule || aiSuggestion) && (
+          {selectedRule && (
             <div className="mt-4">
               <button
                 className="btn-primary w-full py-3 text-lg"

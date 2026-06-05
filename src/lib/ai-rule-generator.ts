@@ -127,6 +127,7 @@ ${structure.textSummary}
 2. 正确映射所有下单字段
 3. 如果存在特殊结构（矩阵、卡片、多Sheet等），使用对应策略
 4. 不确定的映射请标注 confidence < 0.8
+5. 对于多Sheet文件，每个Sheet名称通常代表一个门店/仓库，不需要额外映射storeName（系统会自动提取）
 `;
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { RuleConfig, ParseRule, AISuggestion } from '@/types';
 
@@ -28,6 +28,11 @@ export default function ImportPage() {
       console.error('加载规则失败:', e);
     }
   }, []);
+
+  // 页面加载时获取规则列表
+  useEffect(() => {
+    loadRules();
+  }, [loadRules]);
 
   // 文件拖拽处理
   const handleDragOver = (e: React.DragEvent) => {
@@ -295,6 +300,9 @@ export default function ImportPage() {
                 <option key={rule.id} value={rule.id}>{rule.name}</option>
               ))}
             </select>
+            {rules.length === 0 && (
+              <span className="text-xs text-gray-400">暂无保存的规则，请先使用 AI 生成并保存</span>
+            )}
           </div>
           
           {selectedRule && (

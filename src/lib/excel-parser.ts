@@ -56,11 +56,11 @@ function parseExcelSheet(
   const hasCrossRowAggregation = strategies.some(s => s.type === 'aggregateByColumn');
   
   if (hasMatrixTranspose && dataArea.matrixTranspose) {
-    return parseMatrixTranspose(data, rule);
+    return parseMatrixTranspose(data, rule, sheetName);
   }
   
   if (hasCardParse && dataArea.cardPattern) {
-    return parseCardStyle(data, rule);
+    return parseCardStyle(data, rule, sheetName);
   }
   
   if (hasPlainTextParse) {
@@ -68,13 +68,16 @@ function parseExcelSheet(
   }
   
   if (hasCrossRowAggregation && dataArea.crossRowAggregation) {
-    return parseCrossRowAggregation(data, rule);
+    return parseCrossRowAggregation(data, rule, sheetName);
   }
   
   // 标准表格解析
   const headerRow = dataArea.headerRow ?? 0;
   const startRow = dataArea.dataStartRow ?? (headerRow + 1);
   const endRow = dataArea.dataEndRow ?? data.length;
+  
+  // 提取表头区域信息（Sheet名 + 数据行之前的键值对）
+  const headerInfo = extractHeaderInfo(data, startRow, sheetName);
   
   // 提取尾部信息（如果有）
   const tailInfo: Record<string, string> = {};
@@ -87,6 +90,9 @@ function parseExcelSheet(
     }
   }
   
+  // 合并额外信息：表头信息 + 尾部信息（表头优先）
+  const extraInfo = { ...tailInfo, ...headerInfo };
+  
   // 解析数据行
   for (let i = startRow; i < endRow; i++) {
     const row = data[i];
@@ -98,7 +104,7 @@ function parseExcelSheet(
       if (firstCell.includes('合计') || firstCell.includes('总计')) continue;
     }
     
-    const item = mapRowToOrderItem(row, fieldMappings, tailInfo);
+    const item = mapRowToOrderItem(row, fieldMappings, extraInfo);
     if (item) {
       result.push(item);
     }
@@ -107,10 +113,61 @@ function parseExcelSheet(
   return { data: result, errors };
 }
 
+// 从 Sheet 名和表头区域提取门店、联系人等信息
+function extractHeaderInfo(
+  data: any[][],
+  dataStartRow: number,
+  sheetName: string
+): Record<string, string> {
+  const info: Record<string, string> = {};
+
+  // 1. 从 Sheet 名提取门店名（排除默认 Sheet 名）
+  if (sheetName && !/^Sheet\d*$/i.test(sheetName) && sheetName !== '工作表') {
+    info.storeName = sheetName;
+    info.sheetName = sheetName;
+  }
+
+  // 2. 扫描数据行之前的区域，提取键值对
+  const scanRows = Math.min(dataStartRow, Math.max(dataStartRow, 10));
+  const kvPatterns: { regex: RegExp; field: string }[] = [
+    { regex: /(?:门店|收货单位|收货方|客户|店铺|商店)[:：\s]*(.+)/, field: 'storeName' },
+    { regex: /(?:收件人|收货人|联系人|姓名|收件人姓名)[:：\s]*(.+)/, field: 'recipientName' },
+    { regex: /(?:电话|手机|联系方式|联系电话|收件人电话)[:：\s]*(\d[\d\s-]{6,})/, field: 'recipientPhone' },
+    { regex: /(?:地址|收货地址|详细地址|收件人地址)[:：\s]*(.+)/, field: 'recipientAddress' },
+    { regex: /(?:外部编码|订单号|运单号|外部单号|出库单号)[:：\s]*(.+)/, field: 'externalCode' },
+  ];
+
+  for (let i = 0; i < scanRows; i++) {
+    const row = data[i];
+    if (!row || row.length === 0) continue;
+
+    // 将整行拼接为文本，方便匹配键值对
+    const rowText = row.map(c => {
+      const s = String(c ?? '').trim();
+      return s;
+    }).join(' ').trim();
+    if (!rowText) continue;
+
+    for (const pattern of kvPatterns) {
+      if (info[pattern.field]) continue; // 已提取过则跳过
+      const match = rowText.match(pattern.regex);
+      if (match && match[1]) {
+        const val = match[1].trim();
+        if (val && val.length < 200) {
+          info[pattern.field] = val;
+        }
+      }
+    }
+  }
+
+  return info;
+}
+
 // 矩阵转置解析（欢乐牧场模板、周配送计划）
 function parseMatrixTranspose(
   data: any[][],
-  rule: RuleConfig
+  rule: RuleConfig,
+  sheetName: string
 ): { data: OrderItem[]; errors: string[] } {
   const result: OrderItem[] = [];
   const errors: string[] = [];
@@ -183,7 +240,8 @@ function parseCompoundCell(
 // 卡片式解析（门店调拨单）
 function parseCardStyle(
   data: any[][],
-  rule: RuleConfig
+  rule: RuleConfig,
+  sheetName: string
 ): { data: OrderItem[]; errors: string[] } {
   const result: OrderItem[] = [];
   const errors: string[] = [];
@@ -201,7 +259,7 @@ function parseCardStyle(
     if (regex.test(firstCell)) {
       // 新卡片开始
       if (currentCard) {
-        result.push(...parseCardItems(currentCard, rule));
+        result.push(...parseCardItems(currentCard, rule, sheetName));
       }
       currentCard = { info: {}, items: [] };
       
@@ -221,7 +279,7 @@ function parseCardStyle(
   }
   
   if (currentCard) {
-    result.push(...parseCardItems(currentCard, rule));
+    result.push(...parseCardItems(currentCard, rule, sheetName));
   }
   
   return { data: result, errors };
@@ -229,7 +287,8 @@ function parseCardStyle(
 
 function parseCardItems(
   card: { info: Record<string, string>; items: any[][] },
-  rule: RuleConfig
+  rule: RuleConfig,
+  sheetName: string
 ): OrderItem[] {
   const items: OrderItem[] = [];
   const { fieldMappings } = rule;
@@ -274,6 +333,11 @@ function parseCardItems(
       if (key.includes('地址')) {
         item.recipientAddress = value;
       }
+    }
+
+    // Sheet 名作为门店名的回退
+    if (!item.storeName && sheetName && !/^Sheet\d*$/i.test(sheetName) && sheetName !== '工作表') {
+      item.storeName = sheetName;
     }
     
     if (item.skuCode || item.skuName) {
@@ -364,7 +428,8 @@ function parsePlainText(
 // 跨行聚合解析（湖南仓发货明细）
 function parseCrossRowAggregation(
   data: any[][],
-  rule: RuleConfig
+  rule: RuleConfig,
+  sheetName: string
 ): { data: OrderItem[]; errors: string[] } {
   const result: OrderItem[] = [];
   const errors: string[] = [];
@@ -384,6 +449,10 @@ function parseCrossRowAggregation(
     
     if (!groups.has(groupKey)) {
       const sharedInfo: Record<string, string> = {};
+      // 从 Sheet 名注入门店信息
+      if (sheetName && !/^Sheet\d*$/i.test(sheetName) && sheetName !== '工作表') {
+        sharedInfo.storeName = sheetName;
+      }
       for (const col of crossRowAggregation.sharedColumns) {
         if (row[col] != null && row[col] !== '') {
           sharedInfo[`col_${col}`] = String(row[col]).trim();

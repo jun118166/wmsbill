@@ -47,6 +47,36 @@ export async function generateParseRuleWithAI(
     // 解析 AI 返回的规则
     const ruleConfig = parseAIResponse(content);
     
+    // 后处理：多 Sheet 文件自动注入 storeName 映射（从 Sheet 名获取）
+    if (fileStructure.fileType === 'excel' && (fileStructure.sheets?.length || 0) > 1) {
+      const hasMeaningfulSheetNames = fileStructure.sheets!.some(
+        s => s.name && !/^Sheet\d*$/i.test(s.name) && s.name !== '工作表'
+      );
+      const hasStoreNameMapping = ruleConfig.fieldMappings?.some(m => m.targetField === 'storeName');
+      
+      if (hasMeaningfulSheetNames && !hasStoreNameMapping) {
+        ruleConfig.fieldMappings = [
+          {
+            targetField: 'storeName',
+            required: false,
+            type: 'string' as const,
+          },
+          ...(ruleConfig.fieldMappings || []),
+        ];
+        // 确保策略包含 parseAllSheets
+        if (!ruleConfig.strategies?.some(s => s.type === 'parseAllSheets')) {
+          ruleConfig.strategies = [
+            ...(ruleConfig.strategies || []),
+            { type: 'parseAllSheets' as const },
+          ];
+        }
+        ruleConfig.dataArea = {
+          ...(ruleConfig.dataArea || {}),
+          sheets: 'all' as const,
+        };
+      }
+    }
+    
     return {
       rule: ruleConfig,
       confidence: calculateConfidence(ruleConfig),

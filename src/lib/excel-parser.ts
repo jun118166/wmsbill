@@ -127,17 +127,23 @@ function extractHeaderInfo(
     info.sheetName = sheetName;
   }
 
-  // 2. 扫描数据行之前的区域，提取键值对
-  const scanRows = Math.min(dataStartRow, Math.max(dataStartRow, 10));
+  // 2. 扫描表头 + 尾部区域，提取键值对
   const kvPatterns: { regex: RegExp; field: string }[] = [
-    { regex: /(?:门店|收货单位|收货方|客户|店铺|商店)[:：\s]*(.+)/, field: 'storeName' },
+    { regex: /(?:收货门店|收货单位|收货方|门店|客户|店铺|商店)[:：\s]*(.+)/, field: 'storeName' },
     { regex: /(?:收件人|收货人|联系人|姓名|收件人姓名)[:：\s]*(.+)/, field: 'recipientName' },
     { regex: /(?:电话|手机|联系方式|联系电话|收件人电话)[:：\s]*(\d[\d\s-]{6,})/, field: 'recipientPhone' },
-    { regex: /(?:地址|收货地址|详细地址|收件人地址)[:：\s]*(.+)/, field: 'recipientAddress' },
+    { regex: /(?:收货地址|地址|详细地址|收件人地址)[:：\s]*(.+)/, field: 'recipientAddress' },
     { regex: /(?:外部编码|订单号|运单号|外部单号|出库单号)[:：\s]*(.+)/, field: 'externalCode' },
   ];
 
-  for (let i = 0; i < scanRows; i++) {
+  // 扫描的索引集合：头部前10行 + 尾部后10行
+  const headEnd = Math.min(dataStartRow, 10);
+  const tailStart = Math.max(data.length - 10, dataStartRow);
+  const scanIndices = new Set<number>();
+  for (let i = 0; i < headEnd; i++) scanIndices.add(i);
+  for (let i = tailStart; i < data.length; i++) scanIndices.add(i);
+
+  for (const i of scanIndices) {
     const row = data[i];
     if (!row || row.length === 0) continue;
 
@@ -149,7 +155,7 @@ function extractHeaderInfo(
     if (!rowText) continue;
 
     for (const pattern of kvPatterns) {
-      if (info[pattern.field]) continue; // 已提取过则跳过
+      if (info[pattern.field]) continue; // 已提取过则跳过（Sheet名优先）
       const match = rowText.match(pattern.regex);
       if (match && match[1]) {
         const val = match[1].trim();
@@ -167,7 +173,7 @@ function extractHeaderInfo(
 function parseMatrixTranspose(
   data: any[][],
   rule: RuleConfig,
-  sheetName: string
+  _sheetName: string
 ): { data: OrderItem[]; errors: string[] } {
   const result: OrderItem[] = [];
   const errors: string[] = [];

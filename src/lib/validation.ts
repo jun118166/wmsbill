@@ -3,7 +3,8 @@ import { OrderItem, ValidationError } from '@/types';
 // 校验规则
 export function validateOrderItems(items: OrderItem[]): ValidationError[] {
   const errors: ValidationError[] = [];
-  const externalCodeMap = new Map<string, number>();
+  // 外部编码 + SKU编码 组合去重
+  const comboMap = new Map<string, number>();
   
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
@@ -37,17 +38,18 @@ export function validateOrderItems(items: OrderItem[]): ValidationError[] {
       errors.push({ rowId, field: 'recipientPhone', message: '电话格式不正确' });
     }
     
-    // 外部编码重复检测
-    if (item.externalCode) {
-      if (externalCodeMap.has(item.externalCode)) {
-        const firstRow = externalCodeMap.get(item.externalCode)!;
+    // 外部编码 + SKU编码 组合重复检测
+    if (item.externalCode && item.skuCode) {
+      const key = `${item.externalCode}|||${item.skuCode}`;
+      if (comboMap.has(key)) {
+        const firstRow = comboMap.get(key)!;
         errors.push({
           rowId,
           field: 'externalCode',
-          message: `外部编码 "${item.externalCode}" 与第 ${firstRow + 1} 行重复`,
+          message: `外部编码 "${item.externalCode}" + SKU "${item.skuCode}" 与第 ${firstRow + 1} 行重复`,
         });
       } else {
-        externalCodeMap.set(item.externalCode, i);
+        comboMap.set(key, i);
       }
     }
   }

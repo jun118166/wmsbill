@@ -73,13 +73,7 @@ export default function RulePreviewPage() {
       setFileRule(JSON.parse(storedFileRule));
     }
 
-    // 清理 sessionStorage
-    return () => {
-      sessionStorage.removeItem('previewRule');
-      sessionStorage.removeItem('previewData');
-      sessionStorage.removeItem('previewFile');
-      sessionStorage.removeItem('previewFileRule');
-    };
+    // 注意：不在 cleanup 中清除，由目标页面（preview）自行清理
   }, []);
 
   // 更新映射
@@ -116,16 +110,18 @@ export default function RulePreviewPage() {
         return;
       }
 
-      // 2. 保存规则配置到 sessionStorage 供后续使用
+      // 2. 将预览数据和规则传给预览页面
       sessionStorage.setItem('lastSavedRule', JSON.stringify(saveData.data));
+      sessionStorage.setItem('previewData', JSON.stringify(previewItems));
 
       setSavingSuccess(true);
       setSaving(false);
 
-      // 3. 解析并跳转预览
+      // 3. 跳转预览页
       setTimeout(() => {
         router.push('/preview');
       }, 500);
+
     } catch (e: any) {
       setError(`操作失败: ${e.message}`);
       setSaving(false);

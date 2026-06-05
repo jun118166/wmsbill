@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 29, 33, 41;
+  --background-rgb: 247, 248, 250;
+  --primary: #0fc6c2;
+  --primary-dark: #0bada9;
+  --primary-darker: #0b6e6e;
+  --primary-light: #e8fafa;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: var(--background-rgb);
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-secondary {
+    @apply bg-white text-primary border border-primary px-4 py-2 rounded-lg font-medium hover:bg-primary-light transition-colors;
+  }
+  
+  .btn-danger {
+    @apply bg-red-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-600 transition-colors;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6;
+  }
+  
+  .input-field {
+    @apply w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent;
+  }
+  
+  .table-header {
+    @apply bg-primary-light text-primary-darker font-semibold px-4 py-3 text-left text-sm sticky top-0 z-10;
+  }
+  
+  .table-cell {
+    @apply px-4 py-3 border-b border-gray-100 text-sm;
+  }
+  
+  .tag {
+    @apply inline-block bg-primary-light text-primary-darker text-xs px-2 py-1 rounded-full font-medium;
+  }
+  
+  .tag-red {
+    @apply inline-block bg-red-50 text-red-600 text-xs px-2 py-1 rounded-full font-medium;
+  }
+}
